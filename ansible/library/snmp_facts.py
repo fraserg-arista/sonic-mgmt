@@ -102,6 +102,7 @@ EXAMPLES = '''
 try:
     from pysnmp.proto import rfc1902
     from pysnmp.entity.rfc3413.oneliner import cmdgen
+    from pysnmp.error import PySnmpError
     from pyasn1.type import univ
     has_pysnmp = True
 except Exception:
@@ -417,15 +418,41 @@ def main():
 
     results = Tree()
 
+    host = (m_args['host'], 161)
+    timeout = m_args['timeout']
+
+    # An approximation of the Happy Eyeballs (rfc8305) approach to connecting: try
+    # IPv4 and IPv6 in turn until one of them responds.
+    #
     # Getting system description could take more than 1 second on some Dell platform
-    # (e.g. S6000) when cpu utilization is high, increse timeout to tolerate the delay.
-    errorIndication, errorStatus, errorIndex, varBinds = cmdGen.getCmd(
+    # (e.g. S6000) when cpu utilization is high, increse timeout to tolerate the
+    # delay.
+
+    transportTarget = None
+    tryConnect = lambda target: cmdGen.getCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget(
-            (m_args['host'], 161), timeout=m_args['timeout']),
+        target,
         cmdgen.MibVariable(p.sysDescr,),
         lookupMib=False,
     )
+
+    # Exceptions ignored since they happen if the hostname is an IP literal.
+    try:
+        targetV4 = cmdgen.UdpTransportTarget(host, timeout=timeout)
+        errorIndication, errorStatus, errorIndex, varBinds = tryConnect(targetV4)
+        if not errorIndication:
+            transportTarget = cmdgen.UdpTransportTarget(host, timeout)
+    except PySnmpError:
+        pass
+
+    if transportTarget is None:
+        try:
+            targetV6 = cmdgen.Udp6TransportTarget(host, timeout=timeout)
+            errorIndication, errorStatus, errorIndex, varBinds = tryConnect(targetV6)
+            if not errorIndication:
+                transportTarget = cmdgen.Udp6TransportTarget(host, timeout)
+        except PySnmpError:
+            pass
 
     if errorIndication:
         module.fail_json(msg=str(errorIndication) +
@@ -439,7 +466,7 @@ def main():
 
     errorIndication, errorStatus, errorIndex, varBinds = cmdGen.getCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+        transportTarget,
         cmdgen.MibVariable(p.sysObjectId,),
         cmdgen.MibVariable(p.sysUpTime,),
         cmdgen.MibVariable(p.sysContact,),
@@ -469,7 +496,7 @@ def main():
     # Cisco 8800 has lots of interfacts, add timeout to tolerate the latency
     errorIndication, errorStatus, errorIndex, varTable = cmdGen.nextCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+        transportTarget,
         cmdgen.MibVariable(p.ifIndex,),
         cmdgen.MibVariable(p.ifDescr,),
         cmdgen.MibVariable(p.ifType,),
@@ -552,7 +579,7 @@ def main():
 
     errorIndication, errorStatus, errorIndex, varTable = cmdGen.nextCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+        transportTarget,
         cmdgen.MibVariable(p.ifInDiscards,),
         cmdgen.MibVariable(p.ifOutDiscards,),
         cmdgen.MibVariable(p.ifInErrors,),
@@ -599,7 +626,7 @@ def main():
 
     errorIndication, errorStatus, errorIndex, varTable = cmdGen.nextCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+        transportTarget,
         cmdgen.MibVariable(p.entPhysDescr,),
         cmdgen.MibVariable(p.entPhysContainedIn, ),
         cmdgen.MibVariable(p.entPhysClass,),
@@ -665,7 +692,7 @@ def main():
 
     errorIndication, errorStatus, errorIndex, varTable = cmdGen.nextCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+        transportTarget,
         cmdgen.MibVariable(p.entPhySensorType,),
         cmdgen.MibVariable(p.entPhySensorScale,),
         cmdgen.MibVariable(p.entPhySensorPrecision,),
@@ -720,7 +747,7 @@ def main():
     if m_args['is_dell']:
         errorIndication, errorStatus, errorIndex, varBinds = cmdGen.getCmd(
             snmp_auth,
-            cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+            transportTarget,
             cmdgen.MibVariable(p.ChStackUnitCpuUtil5sec,),
             lookupMib=False, lexicographicMode=False
         )
@@ -738,7 +765,7 @@ def main():
 
     errorIndication, errorStatus, errorIndex, varBinds = cmdGen.getCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+        transportTarget,
         cmdgen.MibVariable(p.lldpLocChassisIdSubtype,),
         cmdgen.MibVariable(p.lldpLocChassisId,),
         cmdgen.MibVariable(p.lldpLocSysName,),
@@ -764,7 +791,7 @@ def main():
 
     errorIndication, errorStatus, errorIndex, varTable = cmdGen.nextCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+        transportTarget,
         cmdgen.MibVariable(p.lldpLocPortIdSubtype,),
         cmdgen.MibVariable(p.lldpLocPortId,),
         cmdgen.MibVariable(p.lldpLocPortDesc,),
@@ -791,7 +818,7 @@ def main():
 
     errorIndication, errorStatus, errorIndex, varTable = cmdGen.nextCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+        transportTarget,
         cmdgen.MibVariable(p.lldpLocManAddrLen,),
         cmdgen.MibVariable(p.lldpLocManAddrIfSubtype,),
         cmdgen.MibVariable(p.lldpLocManAddrIfId,),
@@ -818,7 +845,7 @@ def main():
 
     errorIndication, errorStatus, errorIndex, varTable = cmdGen.nextCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+        transportTarget,
         cmdgen.MibVariable(p.lldpRemChassisIdSubtype,),
         cmdgen.MibVariable(p.lldpRemChassisId,),
         cmdgen.MibVariable(p.lldpRemPortIdSubtype,),
@@ -869,7 +896,7 @@ def main():
 
     errorIndication, errorStatus, errorIndex, varTable = cmdGen.nextCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+        transportTarget,
         cmdgen.MibVariable(p.lldpRemManAddrIfSubtype,),
         cmdgen.MibVariable(p.lldpRemManAddrIfId,),
         cmdgen.MibVariable(p.lldpRemManAddrOID,),
@@ -897,7 +924,7 @@ def main():
     # Cisco 8800 has lots of interfacts, add timeout to tolerate the latency
     errorIndication, errorStatus, errorIndex, varTable = cmdGen.nextCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+        transportTarget,
         cmdgen.MibVariable(p.cpfcIfRequests,),
         cmdgen.MibVariable(p.cpfcIfIndications,),
         cmdgen.MibVariable(p.requestsPerPriority,),
@@ -929,7 +956,7 @@ def main():
 
     errorIndication, errorStatus, errorIndex, varTable = cmdGen.nextCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+        transportTarget,
         cmdgen.MibVariable(p.csqIfQosGroupStats,),
         lookupMib=False,
     )
@@ -950,7 +977,7 @@ def main():
 
     errorIndication, errorStatus, errorIndex, varTable = cmdGen.nextCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+        transportTarget,
         cmdgen.MibVariable(p.cefcFRUPowerOperStatus,),
         lookupMib=False,
     )
@@ -968,7 +995,7 @@ def main():
 
     errorIndication, errorStatus, errorIndex, varTable = cmdGen.nextCmd(
         snmp_auth,
-        cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+        transportTarget,
         cmdgen.MibVariable(p.ipCidrRouteEntry,),
         cmdgen.MibVariable(p.ipCidrRouteStatus,),
         lookupMib=False,
@@ -992,7 +1019,7 @@ def main():
     if not m_args['is_eos']:
         errorIndication, errorStatus, errorIndex, varBinds = cmdGen.getCmd(
             snmp_auth,
-            cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+            transportTarget,
             cmdgen.MibVariable(p.sysTotalMemory,),
             cmdgen.MibVariable(p.sysTotalFreeMemory,),
             cmdgen.MibVariable(p.sysTotalSharedMemory,),
@@ -1026,7 +1053,7 @@ def main():
         if m_args['include_swap']:
             errorIndication, errorStatus, errorIndex, varBinds = cmdGen.getCmd(
                 snmp_auth,
-                cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+                transportTarget,
                 cmdgen.MibVariable(p.sysTotalSwap,),
                 cmdgen.MibVariable(p.sysTotalFreeSwap,),
                 lookupMib=False, lexicographicMode=False
@@ -1047,7 +1074,7 @@ def main():
 
         errorIndication, errorStatus, errorIndex, varTable = cmdGen.nextCmd(
             snmp_auth,
-            cmdgen.UdpTransportTarget((m_args['host'], 161), timeout=m_args['timeout']),
+            transportTarget,
             cmdgen.MibVariable(p.dot1qTpFdbEntry,),
             lookupMib=False,
         )
