@@ -2,7 +2,7 @@ import logging
 import pytest
 import re
 from tests.common.helpers.assertions import pytest_assert
-from tests.common.utilities import wait_until
+from tests.common.utilities import is_ipv6_only_topology, wait_until
 from telemetry_utils import generate_client_cli, check_gnmi_cli_running
 from tests.common.utilities import InterruptableThread
 
@@ -16,11 +16,17 @@ METHOD_SUBSCRIBE = "subscribe"
 SUBSCRIBE_MODE_POLL = 2
 
 
-def verify_route_table_status(duthost, namespace, expected_status="1"):  # status 0 for down, 1 for up
+def default_route_name(tbinfo):
+    if is_ipv6_only_topology(tbinfo):
+        return "::"
+    else:
+        return "0.0.0.0"
+
+def verify_route_table_status(duthost, namespace, route, expected_status="1"):  # status 0 for down, 1 for up
     cmd_prefix = "sonic-db-cli"
     if duthost.is_multi_asic:
         cmd_prefix = "sonic-db-cli -n {}".format(namespace)
-    cmd = cmd_prefix + " APPL_DB exists \"ROUTE_TABLE:0.0.0.0/0\""
+    cmd = cmd_prefix + f" APPL_DB exists \"ROUTE_TABLE:{route}/0\""
     status = duthost.shell(cmd)["stdout"]
     return status == expected_status
 
@@ -161,7 +167,7 @@ def test_poll_mode_delete(duthosts, enum_rand_one_per_hwsku_hostname, ptfhost,
 
 
 @pytest.mark.parametrize('setup_streaming_telemetry', [False], indirect=True)
-def test_poll_mode_default_route(duthosts, enum_rand_one_per_hwsku_hostname, ptfhost, enum_upstream_dut_hostname,
+def test_poll_mode_default_route(duthosts, tbinfo, enum_rand_one_per_hwsku_hostname, ptfhost, enum_upstream_dut_hostname,
                                  setup_streaming_telemetry, gnxi_path,
                                  enum_rand_one_asic_index):
     """
@@ -177,16 +183,17 @@ def test_poll_mode_default_route(duthosts, enum_rand_one_per_hwsku_hostname, ptf
         pytest.skip("Skipping for {}. This is not valid for downstream node".format(duthost))
 
     logger.info('Start telemetry poll mode testing')
+    route = default_route_name(tbinfo)
     namespace = duthost.get_namespace_from_asic_id(enum_rand_one_asic_index)
     cmd = generate_client_cli(duthost=duthost, gnxi_path=gnxi_path, method=METHOD_SUBSCRIBE,
                               subscribe_mode=SUBSCRIBE_MODE_POLL, polling_interval=2,
-                              xpath="\"FAKE_APPL_DB_TABLE_0\" \"ROUTE_TABLE/0.0.0.0\/0\"",  # noqa: W605
+                              xpath=f"\"FAKE_APPL_DB_TABLE_0\" \"ROUTE_TABLE/{route}\/0\"",  # noqa: W605
                               target="APPL_DB", max_sync_count=-1, update_count=5, timeout=30, namespace=namespace)
     modify_fake_appdb_table(duthost, namespace=namespace)  # Add first table data
 
     # Remove default route and wait till there is no entry
     duthost.shell("config bgp shutdown all")
-    pytest_assert(wait_until(60, 5, 0, verify_route_table_status, duthost, namespace, "0"),
+    pytest_assert(wait_until(60, 5, 0, verify_route_table_status, duthost, namespace, route, "0"),
                   "ROUTE_TABLE default route not missing")
 
     ptf_result = ptfhost.shell(cmd)
@@ -200,7 +207,7 @@ def test_poll_mode_default_route(duthosts, enum_rand_one_per_hwsku_hostname, ptf
 
     cmd = generate_client_cli(duthost=duthost, gnxi_path=gnxi_path, method=METHOD_SUBSCRIBE,
                               subscribe_mode=SUBSCRIBE_MODE_POLL, polling_interval=10,
-                              xpath="\"FAKE_APPL_DB_TABLE_0\" \"ROUTE_TABLE/0.0.0.0\/0\"",  # noqa: W605
+                              xpath=f"\"FAKE_APPL_DB_TABLE_0\" \"ROUTE_TABLE/{route}\/0\"",  # noqa: W605
                               target="APPL_DB", max_sync_count=-1, update_count=10, timeout=120, namespace=namespace)
 
     def callback(show_gnmi_out):
@@ -216,7 +223,7 @@ def test_poll_mode_default_route(duthosts, enum_rand_one_per_hwsku_hostname, ptf
 
     # Add back default route
     duthost.shell("config bgp startup all")
-    pytest_assert(wait_until(60, 5, 0, verify_route_table_status, duthost, namespace, "1"),
+    pytest_assert(wait_until(60, 5, 0, verify_route_table_status, duthost, namespace, route, "1"),
                   "ROUTE_TABLE default route missing")
 
     # Give 60 seconds for client to connect to server and then 60 for default route to populate after bgp session start
@@ -226,7 +233,7 @@ def test_poll_mode_default_route(duthosts, enum_rand_one_per_hwsku_hostname, ptf
 
 
 @pytest.mark.parametrize('setup_streaming_telemetry', [False], indirect=True)
-def test_poll_mode_default_route_supervisor(duthosts, enum_rand_one_per_hwsku_hostname, ptfhost,
+def test_poll_mode_default_route_supervisor(duthosts, tbinfo, enum_rand_one_per_hwsku_hostname, ptfhost,
                                             setup_streaming_telemetry, gnxi_path,
                                             enum_rand_one_asic_index):
     """
@@ -237,9 +244,10 @@ def test_poll_mode_default_route_supervisor(duthosts, enum_rand_one_per_hwsku_ho
         pytest.skip("Testing only for supervisor node")
     logger.info('Start telemetry poll mode testing')
     namespace = duthost.get_namespace_from_asic_id(enum_rand_one_asic_index)
+    route = default_route_name(tbinfo)
     cmd = generate_client_cli(duthost=duthost, gnxi_path=gnxi_path, method=METHOD_SUBSCRIBE,
                               subscribe_mode=SUBSCRIBE_MODE_POLL, polling_interval=2,
-                              xpath="\"FAKE_APPL_DB_TABLE_0\" \"ROUTE_TABLE/0.0.0.0\/0\"",  # noqa: W605
+                              xpath=f"\"FAKE_APPL_DB_TABLE_0\" \"ROUTE_TABLE/{route}\/0\"",  # noqa: W605
                               target="APPL_DB", max_sync_count=-1, update_count=5, timeout=30, namespace=namespace)
     modify_fake_appdb_table(duthost, namespace=namespace)  # Add first table data
     ptf_result = ptfhost.shell(cmd)
