@@ -350,9 +350,6 @@ class GenerateGoldenConfigDBModule(object):
         # disable bmp feature table first
         return False
 
-    def is_bmc_device(self):
-        return device_info.get_bmc_data() is not None
-
     def has_otel_image(self):
         rc, out, _ = self.module.run_command("docker images --format '{{.Repository}}'")
         if rc != 0:
@@ -1304,7 +1301,7 @@ class GenerateGoldenConfigDBModule(object):
         # Note: BMC devices also do not host BGP sessions, so the BMP feature is not applicable
         if (self.check_version_for_bmp() is True
                 and device_info.is_supervisor() is False
-                and not self.is_bmc_device()):
+                and not device_info.is_switch_bmc()):
             if multi_asic.is_multi_asic():
                 config = self.overwrite_feature_golden_config_db_multiasic(config, "frr_bmp", "disabled", "enabled")
                 config = self.overwrite_feature_golden_config_db_multiasic(config, "bmp")
@@ -1313,7 +1310,7 @@ class GenerateGoldenConfigDBModule(object):
                 config = self.overwrite_feature_golden_config_db_singleasic(config, "bmp")
 
         # Disable swss and syncd features on BMC devices.
-        if self.is_bmc_device():
+        if device_info.is_switch_bmc():
             if multi_asic.is_multi_asic():
                 config = self.overwrite_feature_golden_config_db_multiasic(config, "swss", "disabled", "disabled")
                 config = self.overwrite_feature_golden_config_db_multiasic(config, "syncd", "disabled", "disabled")
